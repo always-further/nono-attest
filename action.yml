@@ -1,0 +1,177 @@
+name: "nono-skill-sign-action"
+description: "Sign AI agent instruction files (SKILLS.md, CLAUDE.md, AGENT.MD) with Sigstore keyless attestation"
+author: "Phase Security"
+
+branding:
+  icon: "shield"
+  color: "blue"
+
+inputs:
+  version:
+    description: "nono CLI version to install (e.g. v0.6.0-alpha.3). Defaults to latest release."
+    required: false
+    default: "latest"
+  files:
+    description: >
+      Whitespace-separated list of files or globs to sign.
+      If empty, uses --all to sign all instruction files matching trust policy patterns.
+    required: false
+    default: ""
+  commit:
+    description: "Commit .bundle sidecar files back to the repository."
+    required: false
+    default: "true"
+  upload-artifacts:
+    description: "Upload .bundle files as workflow artifacts."
+    required: false
+    default: "false"
+  verify:
+    description: "Run verification after signing as a smoke test."
+    required: false
+    default: "true"
+  trust-policy:
+    description: "Path to trust-policy.json for verification. Only used when verify is true."
+    required: false
+    default: ""
+  working-directory:
+    description: "Working directory for signing. Defaults to repository root."
+    required: false
+    default: "."
+  commit-message:
+    description: "Commit message for bundle sidecar commits."
+    required: false
+    default: "chore: update instruction file attestation bundles [skip ci]"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Detect platform
+      id: platform
+      shell: bash
+      run: |
+        ARCH="$(uname -m)"
+        OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
+
+        case "${ARCH}" in
+          x86_64)  RUST_ARCH="x86_64" ;;
+          aarch64) RUST_ARCH="aarch64" ;;
+          arm64)   RUST_ARCH="aarch64" ;;
+          *)       echo "::error::Unsupported architecture: ${ARCH}"; exit 1 ;;
+        esac
+
+        case "${OS}" in
+          linux)  RUST_OS="unknown-linux-gnu" ;;
+          darwin) RUST_OS="apple-darwin" ;;
+          *)      echo "::error::Unsupported OS: ${OS}"; exit 1 ;;
+        esac
+
+        echo "target=${RUST_ARCH}-${RUST_OS}" >> "${GITHUB_OUTPUT}"
+
+    - name: Resolve version
+      id: version
+      shell: bash
+      env:
+        INPUT_VERSION: ${{ inputs.version }}
+      run: |
+        if [ "${INPUT_VERSION}" = "latest" ]; then
+          VERSION="$(gh release view --repo always-further/nono --json tagName -q .tagName)"
+          echo "resolved=${VERSION}" >> "${GITHUB_OUTPUT}"
+        else
+          echo "resolved=${INPUT_VERSION}" >> "${GITHUB_OUTPUT}"
+        fi
+
+    - name: Install nono
+      shell: bash
+      env:
+        VERSION: ${{ steps.version.outputs.resolved }}
+        TARGET: ${{ steps.platform.outputs.target }}
+      run: |
+        DOWNLOAD_URL="https://github.com/always-further/nono/releases/download/${VERSION}/nono-${VERSION}-${TARGET}.tar.gz"
+        echo "::group::Installing nono ${VERSION} (${TARGET})"
+        echo "Downloading ${DOWNLOAD_URL}"
+
+        curl -fsSL "${DOWNLOAD_URL}" -o /tmp/nono.tar.gz
+        tar xzf /tmp/nono.tar.gz -C /tmp
+        sudo mv /tmp/nono /usr/local/bin/nono
+        rm -f /tmp/nono.tar.gz
+
+        echo "Installed: $(nono --version)"
+        echo "::endgroup::"
+
+    - name: Sign instruction files
+      id: sign
+      shell: bash
+      env:
+        INPUT_FILES: ${{ inputs.files }}
+        INPUT_WORKING_DIR: ${{ inputs.working-directory }}
+      run: |
+        cd "${INPUT_WORKING_DIR}"
+
+        if [ -z "${INPUT_FILES}" ]; then
+          echo "Signing all instruction files (--keyless --all)"
+          nono trust sign --keyless --all
+        else
+          for file in ${INPUT_FILES}; do
+            if [ -f "${file}" ]; then
+              echo "Signing ${file}"
+              nono trust sign --keyless "${file}"
+            else
+              echo "::warning::File not found: ${file}"
+            fi
+          done
+        fi
+
+        # Collect generated bundles for downstream steps
+        BUNDLES="$(find . -name '*.bundle' -newer . -o -name '*.bundle' | sort -u)"
+        {
+          echo "bundles<<NONO_EOF"
+          echo "${BUNDLES}"
+          echo "NONO_EOF"
+        } >> "${GITHUB_OUTPUT}"
+
+    - name: Verify signatures
+      if: inputs.verify == 'true'
+      shell: bash
+      env:
+        INPUT_TRUST_POLICY: ${{ inputs.trust-policy }}
+        INPUT_WORKING_DIR: ${{ inputs.working-directory }}
+      run: |
+        cd "${INPUT_WORKING_DIR}"
+
+        POLICY_ARG=""
+        if [ -n "${INPUT_TRUST_POLICY}" ]; then
+          POLICY_ARG="--policy ${INPUT_TRUST_POLICY}"
+        fi
+
+        echo "::group::Verifying instruction file signatures"
+        nono trust verify ${POLICY_ARG} --all
+        echo "::endgroup::"
+
+    - name: Commit bundles
+      if: inputs.commit == 'true'
+      shell: bash
+      env:
+        INPUT_WORKING_DIR: ${{ inputs.working-directory }}
+        INPUT_COMMIT_MSG: ${{ inputs.commit-message }}
+      run: |
+        cd "${INPUT_WORKING_DIR}"
+
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+        git add -A '*.bundle'
+
+        if git diff --cached --quiet; then
+          echo "No bundle changes to commit."
+        else
+          git commit -m "${INPUT_COMMIT_MSG}"
+          git push
+        fi
+
+    - name: Upload artifacts
+      if: inputs.upload-artifacts == 'true'
+      uses: actions/upload-artifact@v4
+      with:
+        name: instruction-file-bundles
+        path: "${{ inputs.working-directory }}/**/*.bundle"
+        if-no-files-found: warn
