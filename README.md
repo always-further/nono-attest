@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.png" alt="Nono Sigstore Action" width="600">
+  <img src="assets/logo.png" alt="Nono Attest" width="600">
 </p>
 
 <p align="center">
@@ -41,7 +41,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: always-further/nono-skill-sign-action@v1
+      - uses: always-further/nono-attest@v0.0.2
 ```
 
 That's it. This signs all instruction files matching nono's default patterns, commits the `.bundle` sidecars, and verifies the signatures as a smoke test.
@@ -69,7 +69,7 @@ By default, all specified files are signed together into a single `.nono-trust.b
 ### Upload bundles as workflow artifacts
 
 ```yaml
-- uses: always-further/nono-skill-sign-action@v1
+- uses: always-further/nono-attest@v0.0.2
   with:
     commit: "false"
     upload-artifacts: "true"
@@ -78,7 +78,7 @@ By default, all specified files are signed together into a single `.nono-trust.b
 ### Sign specific files together
 
 ```yaml
-- uses: always-further/nono-skill-sign-action@v1
+- uses: always-further/nono-attest@v0.0.2
   with:
     files: "SKILLS.md CLAUDE.md config/settings.json"
 ```
@@ -86,7 +86,7 @@ By default, all specified files are signed together into a single `.nono-trust.b
 ### Sign files separately
 
 ```yaml
-- uses: always-further/nono-skill-sign-action@v1
+- uses: always-further/nono-attest@v0.0.2
   with:
     files: "SKILLS.md CLAUDE.md"
     per-file: "true"
@@ -95,7 +95,7 @@ By default, all specified files are signed together into a single `.nono-trust.b
 ### Pin a specific nono version
 
 ```yaml
-- uses: always-further/nono-skill-sign-action@v1
+- uses: always-further/nono-attest@v0.0.2
   with:
     version: "v0.6.0-alpha.3"
 ```
@@ -103,7 +103,7 @@ By default, all specified files are signed together into a single `.nono-trust.b
 ### Custom trust policy for verification
 
 ```yaml
-- uses: always-further/nono-skill-sign-action@v1
+- uses: always-further/nono-attest@v0.0.2
   with:
     trust-policy: "trust-policy.json"
 ```
@@ -179,7 +179,7 @@ nono run --profile claude-code -- claude
 SKILL files often reference companion artifacts (scripts, configs, data files). Use multi-subject signing to attest them together:
 
 ```yaml
-- uses: always-further/nono-skill-sign-action@v1
+- uses: always-further/nono-attest@v0.0.2
   with:
     files: "SKILLS.md lib/helper.py config/settings.json"
 ```
