@@ -1,12 +1,31 @@
-# nono-skills-sign-action
+<p align="center">
+  <img src="assets/logo.png" alt="Nono Sigstore Action" width="600">
+</p>
 
-Sign AI agent instruction files with [Sigstore](https://sigstore.dev) keyless attestation using [nono](https://github.com/always-further/nono).
+<h1 align="center">nono-skill-sign-action</h1>
 
-Produces Sigstore bundles containing DSSE envelopes with in-toto statements. When multiple files are specified, they are signed together into a single multi-subject bundle (`.nono-trust.bundle`) where one signature covers all files. Bundles include a Fulcio certificate (binding the GitHub Actions OIDC identity to the signature) and a Rekor transparency log inclusion proof.
+<p align="center">
+  <strong>Cryptographic provenance for AI agent instruction files</strong><br>
+  Sign SKILLS.md, CLAUDE.md, AGENT.md and other instruction files with <a href="https://sigstore.dev">Sigstore</a> keyless attestation — no keys to manage, no secrets to rotate.
+</p>
 
-## Usage
+<p align="center">
+  <a href="#quick-start">Quick Start</a> |
+  <a href="#how-it-works">How It Works</a> |
+  <a href="#inputs">Inputs</a> |
+  <a href="#verification">Verification</a> |
+  <a href="https://github.com/always-further/nono">nono CLI</a>
+</p>
 
-### Basic — sign and commit bundles on push
+---
+
+## Why?
+
+AI agents read instruction files to determine what they can do. If those files are tampered with, the agent follows malicious instructions. This action creates a cryptographic chain of trust: every instruction file gets signed in CI, and nono verifies those signatures before the agent can read them.
+
+The result is a **Sigstore bundle** containing a DSSE envelope with an in-toto statement, a Fulcio certificate (binding GitHub Actions OIDC identity to the signature), and a Rekor transparency log inclusion proof. No private keys involved — identity is derived from the CI workflow itself.
+
+## Quick Start
 
 ```yaml
 name: Sign instruction files
@@ -27,7 +46,27 @@ jobs:
       - uses: always-further/nono-skill-sign-action@v1
 ```
 
-This signs all instruction files matching nono's default patterns, commits the `.bundle` sidecars, and verifies the signatures as a smoke test.
+That's it. This signs all instruction files matching nono's default patterns, commits the `.bundle` sidecars, and verifies the signatures as a smoke test.
+
+## How It Works
+
+1. Installs the [nono CLI](https://github.com/always-further/nono) from GitHub releases
+2. Signs instruction files using `nono trust sign --keyless`
+3. GitHub Actions OIDC provides the identity token automatically
+4. Fulcio issues a short-lived certificate binding the OIDC claims (repository, workflow, ref) to an ephemeral signing key
+5. The signature is submitted to Rekor for transparency logging
+6. The resulting bundle contains everything needed for offline verification
+
+## Multi-Subject vs Per-File Bundles
+
+By default, all specified files are signed together into a single `.nono-trust.bundle`. One signature covers the entire set — modify any file and the whole bundle is invalidated. This is the recommended approach for related instruction files.
+
+| Mode | Bundle Output | Use Case |
+|------|---------------|----------|
+| **Multi-subject** (default) | `.nono-trust.bundle` | Sign related files together. Atomic verification. Any change invalidates the bundle. |
+| **Per-file** (`per-file: true`) | `<file>.bundle` for each | Independent signatures. Files can be updated and verified separately. |
+
+## Examples
 
 ### Upload bundles as workflow artifacts
 
@@ -38,9 +77,7 @@ This signs all instruction files matching nono's default patterns, commits the `
     upload-artifacts: "true"
 ```
 
-### Sign specific files (multi-subject bundle)
-
-When you specify multiple files, they are signed together into a single `.nono-trust.bundle`. Any modification to any file invalidates the entire bundle.
+### Sign specific files together
 
 ```yaml
 - uses: always-further/nono-skill-sign-action@v1
@@ -48,9 +85,7 @@ When you specify multiple files, they are signed together into a single `.nono-t
     files: "SKILLS.md CLAUDE.md config/settings.json"
 ```
 
-### Sign files separately (per-file bundles)
-
-For backwards compatibility or when you want independent verification, use `per-file: true` to create separate `<file>.bundle` sidecars for each file.
+### Sign files separately
 
 ```yaml
 - uses: always-further/nono-skill-sign-action@v1
@@ -81,31 +116,13 @@ For backwards compatibility or when you want independent verification, use `per-
 |-------|---------|-------------|
 | `version` | `latest` | nono CLI version to install |
 | `files` | _(empty)_ | Whitespace-separated list of files to sign. Empty = `--all` (matches instruction patterns) |
-| `per-file` | `false` | Sign each file separately with its own `<file>.bundle` instead of a single multi-subject `.nono-trust.bundle` |
+| `per-file` | `false` | Sign each file separately instead of a single multi-subject bundle |
 | `commit` | `true` | Commit bundle files back to the repository |
 | `upload-artifacts` | `false` | Upload bundle files as workflow artifacts |
 | `verify` | `true` | Run verification after signing |
 | `trust-policy` | _(empty)_ | Path to `trust-policy.json` for verification |
 | `working-directory` | `.` | Working directory for signing |
 | `commit-message` | `chore: update instruction file attestation bundles [skip ci]` | Commit message |
-
-## How It Works
-
-1. Installs the nono CLI from GitHub releases
-2. Signs instruction files using `nono trust sign --keyless`
-3. GitHub Actions OIDC provides the identity token automatically
-4. Fulcio issues a short-lived certificate binding the OIDC claims (repository, workflow, ref) to an ephemeral signing key
-5. The signature is submitted to Rekor for transparency logging
-6. The resulting bundle contains everything needed for offline verification
-
-### Multi-Subject vs Per-File Bundles
-
-| Mode | Bundle Output | Use Case |
-|------|---------------|----------|
-| Multi-subject (default) | `.nono-trust.bundle` | Sign related files together. One signature covers all files. Any change invalidates the bundle. |
-| Per-file (`per-file: true`) | `<file>.bundle` for each | Independent signatures. Files can be updated separately. |
-
-Multi-subject bundles are recommended for most use cases — they ensure atomic verification of related instruction files and their companion artifacts.
 
 ## Requirements
 
