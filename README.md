@@ -2,8 +2,6 @@
   <img src="assets/logo.png" alt="Nono Sigstore Action" width="600">
 </p>
 
-<h1 align="center">nono-skill-sign-action</h1>
-
 <p align="center">
   <strong>Cryptographic provenance for AI agent instruction files</strong><br>
   Sign SKILLS.md, CLAUDE.md, AGENT.md and other instruction files with <a href="https://sigstore.dev">Sigstore</a> keyless attestation — no keys to manage, no secrets to rotate.
