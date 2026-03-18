@@ -3,13 +3,14 @@
 </p>
 
 <p align="center">
-  <strong>Cryptographic provenance for AI agent instruction files</strong><br>
-  Sign SKILLS.md, AGENT.md etc and their scripts, configs with <a href="https://sigstore.dev">Sigstore</a> and <a href="https://nono.sh">Nono</a> keyless attestation — no keys to manage, no secrets to rotate and protect your agents from prompt injections!
+  <strong>Cryptographic provenance for AI agent instructions and packages</strong><br>
+  Sign SKILLS.md, CLAUDE.md and related artifacts with <a href="https://sigstore.dev">Sigstore</a> and <a href="https://nono.sh">Nono</a> keyless attestation, or publish full nono packages to the registry with the same GitHub Actions identity.
 </p>
 
 <p align="center">
   <a href="#quick-start">Quick Start</a> |
   <a href="#how-it-works">How It Works</a> |
+  <a href="#package-publishing">Package Publishing</a> |
   <a href="#inputs">Inputs</a> |
   <a href="#verification">Verification</a> |
   <a href="https://github.com/always-further/nono">nono CLI</a>
@@ -19,7 +20,7 @@
 
 ## Why?
 
-AI agents read instruction files to determine what they can do. If those files are tampered with, the agent follows malicious instructions. This action creates a cryptographic chain of trust: every instruction file gets signed in CI, and nono verifies those signatures before the agent can read them.
+AI agents read instruction files to determine what they can do. If those files are tampered with, the agent follows malicious instructions. nono packages raise the stakes further by distributing profiles, hooks, trust policy, and project instructions together. This action creates a cryptographic chain of trust for both cases: instruction files can be signed in CI, and full nono packages can be signed and published with the same workflow identity.
 
 The result is a **Sigstore bundle** containing a DSSE envelope with an in-toto statement, a Fulcio certificate (binding GitHub Actions OIDC identity to the signature), and a Rekor transparency log inclusion proof. No private keys involved — identity is derived from the CI workflow itself.
 
@@ -43,10 +44,57 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: always-further/nono-attest@v0.0.2
+      - uses: always-further/agent-sign@v0.0.2
 ```
 
 That's it. This signs all instruction files matching nono's default patterns, commits the `.bundle` sidecars, and verifies the signatures as a smoke test.
+
+## Package Publishing
+
+`agent-sign` also supports publishing full nono packages to the registry. In publish mode it:
+
+1. Installs the `nono` CLI
+2. Signs each package artifact with a per-file `.bundle`
+3. Exchanges the GitHub OIDC token for a short-lived registry upload token
+4. Uploads the artifacts and matching bundle sidecars
+
+Example:
+
+```yaml
+name: Publish nono package
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: always-further/agent-sign@main
+        with:
+          publish: "true"
+          package-name: claude-code
+          package-namespace: always-further
+          version: ${{ github.ref_name }}
+          package-path: .
+          files: |
+            package.json
+            claude-code.profile.json
+            CLAUDE.md
+            hooks/nono-hook.sh
+            groups.json
+            trust-policy.json
+```
+
+If `files` is omitted in publish mode, the action recursively discovers non-hidden files under `package-path`, excluding `README.md` and existing `*.bundle` sidecars.
 
 ## How It Works
 
@@ -71,7 +119,7 @@ By default, all specified files are signed together into a single `.nono-trust.b
 ### Upload bundles as workflow artifacts
 
 ```yaml
-- uses: always-further/nono-attest@v0.0.2
+- uses: always-further/agent-sign@v0.0.2
   with:
     commit: "false"
     upload-artifacts: "true"
@@ -80,7 +128,7 @@ By default, all specified files are signed together into a single `.nono-trust.b
 ### Sign specific files together
 
 ```yaml
-- uses: always-further/nono-attest@v0.0.2
+- uses: always-further/agent-sign@v0.0.2
   with:
     files: "SKILLS.md CLAUDE.md config/settings.json"
 ```
@@ -88,7 +136,7 @@ By default, all specified files are signed together into a single `.nono-trust.b
 ### Sign files separately
 
 ```yaml
-- uses: always-further/nono-attest@v0.0.2
+- uses: always-further/agent-sign@v0.0.2
   with:
     files: "SKILLS.md CLAUDE.md"
     per-file: "true"
@@ -97,15 +145,28 @@ By default, all specified files are signed together into a single `.nono-trust.b
 ### Pin a specific nono version
 
 ```yaml
-- uses: always-further/nono-attest@v0.0.2
+- uses: always-further/agent-sign@v0.0.2
   with:
     version: "v0.6.0-alpha.3"
+```
+
+### Publish a package to a development registry
+
+```yaml
+- uses: always-further/agent-sign@main
+  with:
+    publish: "true"
+    package-name: claude-code
+    package-namespace: always-further
+    version: ${{ github.ref_name }}
+    package-path: .
+    registry-url: "http://localhost:3001/api/v1"
 ```
 
 ### Custom trust policy for verification
 
 ```yaml
-- uses: always-further/nono-attest@v0.0.2
+- uses: always-further/agent-sign@v0.0.2
   with:
     trust-policy: "trust-policy.json"
 ```
@@ -123,15 +184,28 @@ By default, all specified files are signed together into a single `.nono-trust.b
 | `trust-policy` | _(empty)_ | Path to `trust-policy.json` for verification |
 | `working-directory` | `.` | Working directory for signing |
 | `commit-message` | `chore: update instruction file attestation bundles [skip ci]` | Commit message |
+| `publish` | `false` | Publish a nono package version to the registry |
+| `package-name` | _(empty)_ | Registry package name for publish mode |
+| `package-namespace` | _(empty)_ | Registry namespace for publish mode |
+| `registry-url` | `https://registry.nono.sh/api/v1` | Registry API base URL for publish mode |
+| `package-path` | `.` | Package directory for publish mode |
 
 ## Requirements
 
-The workflow must have `id-token: write` permission for Sigstore keyless signing. If `commit: true` (the default), it also needs `contents: write`.
+The workflow must have `id-token: write` permission for Sigstore keyless signing and package publishing. If `commit: true` (the default for instruction mode), it also needs `contents: write`.
 
 ```yaml
 permissions:
   id-token: write
   contents: write
+```
+
+For package publishing, `contents: read` is enough unless your workflow also commits changes:
+
+```yaml
+permissions:
+  id-token: write
+  contents: read
 ```
 
 ## Verification
@@ -167,6 +241,8 @@ Or enforce at runtime — nono's pre-exec scan verifies all instruction files be
 ```bash
 nono run --profile claude-code -- claude
 ```
+
+For package publishing, consumers verify the downloaded artifacts during `nono pull` using the Sigstore bundle, Fulcio identity, Rekor inclusion proof, and namespace-bound publisher identity returned by the registry pull manifest.
 
 ## Source to Runtime Attestation
 
@@ -234,7 +310,7 @@ The relevant Fulcio certificate extensions:
 SKILL files often reference companion artifacts (scripts, configs, data files). Use multi-subject signing to attest them together:
 
 ```yaml
-- uses: always-further/nono-attest@v0.0.2
+- uses: always-further/agent-sign@v0.0.2
   with:
     files: "SKILLS.md lib/helper.py config/settings.json"
 ```

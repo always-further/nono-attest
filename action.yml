@@ -1,5 +1,5 @@
-name: "nono-attest"
-description: "Sign AI agent instruction files (SKILLS.md, CLAUDE.md, AGENT.MD) and their scripts, with Sigstore & Nono keyless attestation"
+name: "agent-sign"
+description: "Sign AI agent instruction files or publish nono packages with Sigstore and Nono keyless attestation"
 author: "Phase Security"
 
 branding:
@@ -49,6 +49,26 @@ inputs:
     description: "Commit message for bundle commits."
     required: false
     default: "chore: update instruction file attestation bundles [skip ci]"
+  publish:
+    description: "Publish a nono package version to the registry after signing."
+    required: false
+    default: "false"
+  package-name:
+    description: "Registry package name. Required when publish is true."
+    required: false
+    default: ""
+  package-namespace:
+    description: "Registry namespace or organization. Required when publish is true."
+    required: false
+    default: ""
+  registry-url:
+    description: "Registry API base URL. Used when publish is true."
+    required: false
+    default: "https://registry.nono.sh/api/v1"
+  package-path:
+    description: "Package directory containing package.json and artifacts. Used when publish is true."
+    required: false
+    default: "."
 
 runs:
   using: "composite"
@@ -113,11 +133,67 @@ runs:
       env:
         INPUT_FILES: ${{ inputs.files }}
         INPUT_PER_FILE: ${{ inputs.per-file }}
+        INPUT_PUBLISH: ${{ inputs.publish }}
+        INPUT_PACKAGE_NAME: ${{ inputs.package-name }}
+        INPUT_PACKAGE_NAMESPACE: ${{ inputs.package-namespace }}
+        INPUT_PACKAGE_PATH: ${{ inputs.package-path }}
         INPUT_WORKING_DIR: ${{ inputs.working-directory }}
       run: |
         cd "${INPUT_WORKING_DIR}"
 
-        if [ -z "${INPUT_FILES}" ]; then
+        if [ "${INPUT_PUBLISH}" = "true" ]; then
+          if [ -z "${INPUT_PACKAGE_NAME}" ] || [ -z "${INPUT_PACKAGE_NAMESPACE}" ]; then
+            echo "::error::package-name and package-namespace are required when publish=true"
+            exit 1
+          fi
+
+          if [ ! -d "${INPUT_PACKAGE_PATH}" ]; then
+            echo "::error::package-path does not exist: ${INPUT_PACKAGE_PATH}"
+            exit 1
+          fi
+
+          FILE_LIST="${RUNNER_TEMP}/nono_package_files.txt"
+          : > "${FILE_LIST}"
+          cd "${INPUT_PACKAGE_PATH}"
+
+          if [ -n "${INPUT_FILES}" ]; then
+            for file in ${INPUT_FILES}; do
+              if [ -f "${file}" ]; then
+                printf '%s\n' "${file}" >> "${FILE_LIST}"
+              else
+                echo "::error::File not found: ${file}"
+                exit 1
+              fi
+            done
+          else
+            while IFS= read -r -d '' file; do
+              rel="${file#./}"
+              case "${rel}" in
+                README.md|*.bundle)
+                  continue
+                  ;;
+              esac
+              printf '%s\n' "${rel}" >> "${FILE_LIST}"
+            done < <(find . -type f ! -path '*/.*' -print0 | sort -z)
+          fi
+
+          if [ ! -s "${FILE_LIST}" ]; then
+            echo "::error::No package files found to sign"
+            exit 1
+          fi
+
+          while IFS= read -r file; do
+            [ -z "${file}" ] && continue
+            echo "Signing ${file} (per-file bundle)"
+            nono trust sign --keyless "${file}"
+          done < "${FILE_LIST}"
+
+          {
+            echo "bundles<<NONO_EOF"
+            find . -name '*.bundle' -type f | sort -u
+            echo "NONO_EOF"
+          } >> "${GITHUB_OUTPUT}"
+        elif [ -z "${INPUT_FILES}" ]; then
           # No files specified: use --all (discovers and signs all instruction files)
           echo "Signing all instruction files (--keyless --all)"
           nono trust sign --keyless --all
@@ -160,7 +236,7 @@ runs:
         } >> "${GITHUB_OUTPUT}"
 
     - name: Verify signatures
-      if: inputs.verify == 'true'
+      if: inputs.verify == 'true' && inputs.publish != 'true'
       shell: bash
       env:
         INPUT_TRUST_POLICY: ${{ inputs.trust-policy }}
@@ -178,7 +254,7 @@ runs:
         echo "::endgroup::"
 
     - name: Commit bundles
-      if: inputs.commit == 'true'
+      if: inputs.commit == 'true' && inputs.publish != 'true'
       shell: bash
       env:
         INPUT_WORKING_DIR: ${{ inputs.working-directory }}
@@ -208,3 +284,14 @@ runs:
           ${{ inputs.working-directory }}/**/*.bundle
           ${{ inputs.working-directory }}/.nono-trust.bundle
         if-no-files-found: warn
+
+    - name: Publish package
+      if: inputs.publish == 'true'
+      shell: bash
+      env:
+        PACKAGE_NAME: ${{ inputs.package-name }}
+        PACKAGE_NAMESPACE: ${{ inputs.package-namespace }}
+        PACKAGE_VERSION: ${{ inputs.version }}
+        PACKAGE_PATH: ${{ inputs.package-path }}
+        REGISTRY_URL: ${{ inputs.registry-url }}
+      run: ${{ github.action_path }}/sign-and-publish.sh
