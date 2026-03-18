@@ -83,7 +83,8 @@ jobs:
           publish: "true"
           package-name: claude-code
           package-namespace: always-further
-          version: ${{ github.ref_name }}
+          package-version: ${{ github.ref_name }}
+          nono-version: latest
           package-path: .
           files: |
             package.json
@@ -158,7 +159,8 @@ By default, all specified files are signed together into a single `.nono-trust.b
     publish: "true"
     package-name: claude-code
     package-namespace: always-further
-    version: ${{ github.ref_name }}
+    package-version: ${{ github.ref_name }}
+    nono-version: latest
     package-path: .
     registry-url: "http://localhost:3001/api/v1"
 ```
@@ -175,7 +177,7 @@ By default, all specified files are signed together into a single `.nono-trust.b
 
 | Input | Default | Description |
 |-------|---------|-------------|
-| `version` | `latest` | nono CLI version to install |
+| `nono-version` | `latest` | nono CLI version to install |
 | `files` | _(empty)_ | Whitespace-separated list of files to sign. Empty = `--all` (matches instruction patterns) |
 | `per-file` | `false` | Sign each file separately instead of a single multi-subject bundle |
 | `commit` | `true` | Commit bundle files back to the repository |
@@ -185,6 +187,7 @@ By default, all specified files are signed together into a single `.nono-trust.b
 | `working-directory` | `.` | Working directory for signing |
 | `commit-message` | `chore: update instruction file attestation bundles [skip ci]` | Commit message |
 | `publish` | `false` | Publish a nono package version to the registry |
+| `package-version` | _(empty)_ | Registry package version for publish mode |
 | `package-name` | _(empty)_ | Registry package name for publish mode |
 | `package-namespace` | _(empty)_ | Registry namespace for publish mode |
 | `registry-url` | `https://registry.nono.sh/api/v1` | Registry API base URL for publish mode |

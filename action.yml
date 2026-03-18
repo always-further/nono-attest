@@ -7,10 +7,14 @@ branding:
   color: "blue"
 
 inputs:
-  version:
+  nono-version:
     description: "nono CLI version to install (e.g. v0.6.1). Defaults to latest release."
     required: false
     default: "latest"
+  package-version:
+    description: "Registry package version to publish. Required when publish is true."
+    required: false
+    default: ""
   files:
     description: >
       Whitespace-separated list of files to sign.
@@ -100,7 +104,7 @@ runs:
       shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
-        INPUT_VERSION: ${{ inputs.version }}
+        INPUT_VERSION: ${{ inputs.nono-version }}
       run: |
         if [ "${INPUT_VERSION}" = "latest" ]; then
           VERSION="$(gh release view --repo always-further/nono --json tagName -q .tagName)"
@@ -136,14 +140,15 @@ runs:
         INPUT_PUBLISH: ${{ inputs.publish }}
         INPUT_PACKAGE_NAME: ${{ inputs.package-name }}
         INPUT_PACKAGE_NAMESPACE: ${{ inputs.package-namespace }}
+        PACKAGE_VERSION: ${{ inputs.package-version }}
         INPUT_PACKAGE_PATH: ${{ inputs.package-path }}
         INPUT_WORKING_DIR: ${{ inputs.working-directory }}
       run: |
         cd "${INPUT_WORKING_DIR}"
 
         if [ "${INPUT_PUBLISH}" = "true" ]; then
-          if [ -z "${INPUT_PACKAGE_NAME}" ] || [ -z "${INPUT_PACKAGE_NAMESPACE}" ]; then
-            echo "::error::package-name and package-namespace are required when publish=true"
+          if [ -z "${INPUT_PACKAGE_NAME}" ] || [ -z "${INPUT_PACKAGE_NAMESPACE}" ] || [ -z "${PACKAGE_VERSION:-}" ]; then
+            echo "::error::package-name, package-namespace, and package-version are required when publish=true"
             exit 1
           fi
 
@@ -291,7 +296,7 @@ runs:
       env:
         PACKAGE_NAME: ${{ inputs.package-name }}
         PACKAGE_NAMESPACE: ${{ inputs.package-namespace }}
-        PACKAGE_VERSION: ${{ inputs.version }}
+        PACKAGE_VERSION: ${{ inputs.package-version }}
         PACKAGE_PATH: ${{ inputs.package-path }}
         REGISTRY_URL: ${{ inputs.registry-url }}
       run: ${{ github.action_path }}/sign-and-publish.sh
