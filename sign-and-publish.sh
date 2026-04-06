@@ -65,10 +65,7 @@ if [ ! -f "${BUNDLE_PATH}" ]; then
 fi
 
 echo "Publishing ${PACKAGE_NAMESPACE}/${PACKAGE_NAME}@${PACKAGE_VERSION}..."
-CURL_ARGS=(-fsS -X POST "${REGISTRY_URL}/packages/${PACKAGE_NAMESPACE}/${PACKAGE_NAME}/versions")
-CURL_ARGS+=(-H "Authorization: Bearer ${UPLOAD_TOKEN}")
-CURL_ARGS+=(-F "version=${PACKAGE_VERSION}")
-CURL_ARGS+=(-F "bundle=@${BUNDLE_PATH};filename=${BUNDLE_PATH}")
+ARTIFACT_ARGS=()
 
 while IFS= read -r file; do
   [ -z "${file}" ] && continue
@@ -79,15 +76,27 @@ while IFS= read -r file; do
   fi
 
   echo "Uploading ${file}"
-  CURL_ARGS+=(-F "artifact=@${file};filename=${file}")
+  ARTIFACT_ARGS+=(-F "artifact=@${file};filename=${file}")
 done < "${FILE_LIST}"
 
-RESPONSE=$(curl "${CURL_ARGS[@]}")
-echo "Publish response: ${RESPONSE}"
+PUBLISH_STATUS=$(curl -sS -o /tmp/nono_publish_response.json -w '%{http_code}' \
+  -X POST "${REGISTRY_URL}/packages/${PACKAGE_NAMESPACE}/${PACKAGE_NAME}/versions" \
+  -H "Authorization: Bearer ${UPLOAD_TOKEN}" \
+  -F "version=${PACKAGE_VERSION}" \
+  -F "bundle=@${BUNDLE_PATH};filename=${BUNDLE_PATH}" \
+  "${ARTIFACT_ARGS[@]}")
+RESPONSE=$(cat /tmp/nono_publish_response.json)
+rm -f /tmp/nono_publish_response.json
+echo "Publish response (${PUBLISH_STATUS}): ${RESPONSE}"
+
+if [ "${PUBLISH_STATUS}" -lt 200 ] || [ "${PUBLISH_STATUS}" -ge 300 ]; then
+  echo "ERROR: publish failed (${PUBLISH_STATUS})" >&2
+  exit 1
+fi
 
 VERSION_ID=$(printf '%s' "${RESPONSE}" | jq -r '.id')
 if [ -z "${VERSION_ID}" ] || [ "${VERSION_ID}" = "null" ]; then
-  echo "ERROR: publish failed" >&2
+  echo "ERROR: publish failed: no version id in response" >&2
   exit 1
 fi
 
