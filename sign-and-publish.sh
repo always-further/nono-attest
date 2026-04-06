@@ -56,18 +56,20 @@ if [ ! -f "${FILE_LIST}" ]; then
   exit 1
 fi
 
-README_PATH="${PACKAGE_PATH}/README.md"
+cd "${PACKAGE_PATH}"
+
+BUNDLE_PATH=".nono-trust.bundle"
+if [ ! -f "${BUNDLE_PATH}" ]; then
+  echo "ERROR: multi-subject bundle not found: ${BUNDLE_PATH}" >&2
+  exit 1
+fi
 
 echo "Publishing ${PACKAGE_NAMESPACE}/${PACKAGE_NAME}@${PACKAGE_VERSION}..."
 CURL_ARGS=(-fsS -X POST "${REGISTRY_URL}/packages/${PACKAGE_NAMESPACE}/${PACKAGE_NAME}/versions")
 CURL_ARGS+=(-H "Authorization: Bearer ${UPLOAD_TOKEN}")
 CURL_ARGS+=(-F "version=${PACKAGE_VERSION}")
+CURL_ARGS+=(-F "bundle=@${BUNDLE_PATH};filename=${BUNDLE_PATH}")
 
-if [ -f "${README_PATH}" ]; then
-  CURL_ARGS+=(-F "readme=<${README_PATH}")
-fi
-
-cd "${PACKAGE_PATH}"
 while IFS= read -r file; do
   [ -z "${file}" ] && continue
 
@@ -76,15 +78,8 @@ while IFS= read -r file; do
     exit 1
   fi
 
-  bundle_path="${file}.bundle"
-  if [ ! -f "${bundle_path}" ]; then
-    echo "ERROR: bundle missing for artifact: ${file}" >&2
-    exit 1
-  fi
-
   echo "Uploading ${file}"
   CURL_ARGS+=(-F "artifact=@${file};filename=${file}")
-  CURL_ARGS+=(-F "bundle=@${bundle_path};filename=${bundle_path}")
 done < "${FILE_LIST}"
 
 RESPONSE=$(curl "${CURL_ARGS[@]}")

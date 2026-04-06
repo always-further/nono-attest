@@ -187,15 +187,18 @@ runs:
             exit 1
           fi
 
+          FILES_TO_SIGN=""
           while IFS= read -r file; do
             [ -z "${file}" ] && continue
-            echo "Signing ${file} (per-file bundle)"
-            nono trust sign --keyless "${file}"
+            FILES_TO_SIGN="${FILES_TO_SIGN} ${file}"
           done < "${FILE_LIST}"
+
+          echo "Signing files as multi-subject bundle:${FILES_TO_SIGN}"
+          nono trust sign --keyless --multi-subject ${FILES_TO_SIGN}
 
           {
             echo "bundles<<NONO_EOF"
-            find . -name '*.bundle' -type f | sort -u
+            echo ".nono-trust.bundle"
             echo "NONO_EOF"
           } >> "${GITHUB_OUTPUT}"
         elif [ -z "${INPUT_FILES}" ]; then
