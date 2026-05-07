@@ -41,7 +41,21 @@ EXCHANGE_RESPONSE=$(cat /tmp/nono_oidc_exchange_response.json)
 rm -f /tmp/nono_oidc_exchange_response.json
 
 if [ "${EXCHANGE_STATUS}" -lt 200 ] || [ "${EXCHANGE_STATUS}" -ge 300 ]; then
-  echo "ERROR: registry token exchange failed (${EXCHANGE_STATUS}): ${EXCHANGE_RESPONSE}" >&2
+  EXCHANGE_ERROR_MSG=$(printf '%s' "${EXCHANGE_RESPONSE}" | jq -r '.message // .error // empty' 2>/dev/null || true)
+  if [ "${EXCHANGE_STATUS}" -ge 500 ]; then
+    echo "ERROR: registry token exchange failed with a server error (${EXCHANGE_STATUS})." >&2
+    echo "  The registry at ${REGISTRY_URL} may be temporarily unavailable — please retry in a few minutes." >&2
+  elif [ "${EXCHANGE_STATUS}" -eq 401 ] || [ "${EXCHANGE_STATUS}" -eq 403 ]; then
+    echo "ERROR: registry token exchange failed — permission denied (${EXCHANGE_STATUS})." >&2
+    echo "  Verify the OIDC token audience is 'nono-registry' and this repository is authorized." >&2
+  else
+    echo "ERROR: registry token exchange failed (${EXCHANGE_STATUS})." >&2
+  fi
+  if [ -n "${EXCHANGE_ERROR_MSG}" ]; then
+    echo "  Registry message: ${EXCHANGE_ERROR_MSG}" >&2
+  elif [ -n "${EXCHANGE_RESPONSE}" ]; then
+    echo "  Response body: ${EXCHANGE_RESPONSE}" >&2
+  fi
   exit 1
 fi
 
